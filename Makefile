@@ -990,7 +990,7 @@ endif
 
 .PHONY: package
 package:
-	$(V1) cd $@ && $(MAKE) --no-print-directory $@
+	$(V1) cd $@ && $(MAKE) --no-print-directory $@ QT_PLUGINS_DIR="$(QT_PLUGINS_DIR)"
 
 .PHONY: package_resources
 package_resources:
