@@ -34,9 +34,9 @@
 #include "uavobjectmanager.h" /* UAVO types */
 #include "i2cvm.h"	      /* UAVO that holds VM state snapshots */
 #include "i2c_vm_asm.h"	      /* Minimal assembler for I2C VM */
-#if defined(PIOS_INCLUDE_FREERTOS)
+#if defined(PIOS_INCLUDE_FREERTOS) || defined(PIOS_INCLUDE_CHIBIOS)
 #include "pios_thread.h"
-#endif /* defined(PIOS_INCLUDE_FREERTOS) */
+#endif /* defined(PIOS_INCLUDE_FREERTOS) || defined(PIOS_INCLUDE_CHIBIOS) */
 
 struct i2c_vm_regs {
 	bool     halted;
@@ -644,7 +644,7 @@ static bool i2c_vm_write (struct i2c_vm_regs * vm_state, uint8_t ram_addr, uint8
 		},
 	};
 
-	uint32_t rc = PIOS_I2C_Transfer(vm_state->i2c_adapter, txn_list, NELEMENTS(txn_list));
+	int32_t rc = PIOS_I2C_Transfer(vm_state->i2c_adapter, txn_list, NELEMENTS(txn_list));
 
 	/* Fault the VM if the I2C transfer fails */
 	if (rc < 0)
@@ -677,9 +677,9 @@ static bool i2c_vm_send_uavo (struct i2c_vm_regs * vm_state, uint8_t op1, uint8_
  */
 static bool i2c_vm_delay (struct i2c_vm_regs * vm_state, uint8_t op1, uint8_t imm_hi, uint8_t imm_lo)
 {
-#if defined(PIOS_INCLUDE_FREERTOS)
+#if defined(PIOS_INCLUDE_FREERTOS) || defined(PIOS_INCLUDE_CHIBIOS)
 	PIOS_Thread_Sleep(SIMM_VAL(imm_hi, imm_lo));
-#endif /* defined(PIOS_INCLUDE_FREERTOS) */
+#endif /* defined(PIOS_INCLUDE_FREERTOS) || defined(PIOS_INCLUDE_CHIBIOS) */
 
 	vm_state->uavo.pc++;
 	return true;

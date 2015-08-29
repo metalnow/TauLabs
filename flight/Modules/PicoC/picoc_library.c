@@ -350,6 +350,12 @@ void SystemSync(struct ParseState *Parser, struct Value *ReturnValue, struct Val
 	}
 }
 
+/* unsigned long time(): returns actual systemtime as ms-value */
+void SystemTime(struct ParseState *Parser, struct Value *ReturnValue, struct Value **Param, int NumArgs)
+{
+	ReturnValue->Val->UnsignedLongInteger = PIOS_Thread_Systime();
+}
+
 /* int armed(): returns armed status */
 void SystemArmed(struct ParseState *Parser, struct Value *ReturnValue, struct Value **Param, int NumArgs)
 {
@@ -368,8 +374,56 @@ void SystemAccessLevelSet(struct ParseState *Parser, struct Value *ReturnValue, 
 /* void ChangeBaud(long): changes the speed of picoc serial port */
 void SystemChangeBaud(struct ParseState *Parser, struct Value *ReturnValue, struct Value **Param, int NumArgs)
 {
-	if ((PIOS_COM_PICOC) && (Param[0]->Val->LongInteger > 0) && (Param[0]->Val->LongInteger <=115200)) {
-		PIOS_COM_ChangeBaud(PIOS_COM_PICOC, Param[0]->Val->LongInteger);
+	if ((PIOS_COM_PICOC) && (Param[0]->Val->UnsignedLongInteger > 0)) {
+		PIOS_COM_ChangeBaud(PIOS_COM_PICOC, Param[0]->Val->UnsignedLongInteger);
+	}
+}
+/* long SendBuffer(unsigned char *,unsigned int): sends a buffer content to picoc serial port */
+void SystemSendBuffer(struct ParseState *Parser, struct Value *ReturnValue, struct Value **Param, int NumArgs)
+{
+	if ((PIOS_COM_PICOC) && (Param[0]->Val->Pointer != NULL)) {
+		uint8_t *buffer = Param[0]->Val->Pointer;
+		uint16_t buf_len = Param[1]->Val->UnsignedInteger;
+		ReturnValue->Val->LongInteger = 0;
+		while (buf_len > 0) {
+			int32_t rc = PIOS_COM_SendBufferNonBlocking(PIOS_COM_PICOC, buffer, buf_len);
+			if (rc > 0) {
+				buf_len -= rc;
+				buffer += rc;
+				ReturnValue->Val->LongInteger += rc;
+			} else if (rc == 0) {
+				PIOS_Thread_Sleep(1);
+			} else {
+				ReturnValue->Val->LongInteger = rc;
+				return;
+			}
+		}
+	} else {
+		ReturnValue->Val->LongInteger = -1;
+	}
+}
+/* long ReceiveBuffer(unsigned char *,unsigned int,unsigned long): receives buffer from picoc serial port */
+void SystemReceiveBuffer(struct ParseState *Parser, struct Value *ReturnValue, struct Value **Param, int NumArgs)
+{
+	if ((PIOS_COM_PICOC) && (Param[0]->Val->Pointer != NULL)) {
+		uint8_t *buffer = Param[0]->Val->Pointer;
+		uint16_t buf_len = Param[1]->Val->UnsignedInteger;
+		uint32_t timeout = Param[2]->Val->UnsignedLongInteger;
+		ReturnValue->Val->LongInteger = 0;
+		while (buf_len > 0) {
+			uint16_t rc = PIOS_COM_ReceiveBuffer(PIOS_COM_PICOC, buffer, buf_len, 0);
+			if (rc > 0) {
+				buf_len -= rc;
+				buffer += rc;
+				ReturnValue->Val->LongInteger += rc;
+			} else if (timeout-- > 0) {
+				PIOS_Thread_Sleep(1);
+			} else {
+				return;
+			}
+		}
+	} else {
+		ReturnValue->Val->LongInteger = -1;
 	}
 }
 #endif
@@ -412,11 +466,11 @@ void SystemPWMFreqSet(struct ParseState *Parser, struct Value *ReturnValue, stru
 {
 	if (!security(1))
 		return;
-	if ((Param[0]->Val->Integer >= 0) && (Param[0]->Val->Integer < ACTUATORSETTINGS_CHANNELUPDATEFREQ_NUMELEM)) {
+	if ((Param[0]->Val->Integer >= 0) && (Param[0]->Val->Integer < ACTUATORSETTINGS_TIMERUPDATEFREQ_NUMELEM)) {
 		ActuatorSettingsData data;
-		ActuatorSettingsChannelUpdateFreqGet(data.ChannelUpdateFreq);
-		data.ChannelUpdateFreq[Param[0]->Val->Integer] = Param[1]->Val->UnsignedInteger;
-		ActuatorSettingsChannelUpdateFreqSet(data.ChannelUpdateFreq);
+		ActuatorSettingsTimerUpdateFreqGet(data.TimerUpdateFreq);
+		data.TimerUpdateFreq[Param[0]->Val->Integer] = Param[1]->Val->UnsignedInteger;
+		ActuatorSettingsTimerUpdateFreqSet(data.TimerUpdateFreq);
 	}
 }
 
@@ -480,15 +534,145 @@ void SystemTxChannelValGet(struct ParseState *Parser, struct Value *ReturnValue,
 	ReturnValue->Val->Integer = PIOS_RCVR_Read(pios_rcvr_group_map[data.ChannelGroups[MANUALCONTROLSETTINGS_CHANNELGROUPS_THROTTLE]], Param[0]->Val->Integer);
 }
 
+#ifdef PIOS_INCLUDE_I2C
+/* void int I2CRead(unsigned char,unsigned char, void *, unsigned int): read bytes from i2c slave */
+void SystemI2CRead(struct ParseState *Parser, struct Value *ReturnValue, struct Value **Param, int NumArgs)
+{
+	uint32_t i2c_adapter;
+	const struct pios_i2c_txn txn_list[] = {
+		{
+			.info = __func__,
+			.addr = Param[1]->Val->UnsignedCharacter,
+			.rw   = PIOS_I2C_TXN_READ,
+			.len  = Param[3]->Val->UnsignedInteger,
+			.buf  = Param[2]->Val->Pointer,
+		},
+	};
+
+	switch(Param[0]->Val->Integer) {
+#if defined(PIOS_I2C_ADAPTER_0)
+		case 0:
+			i2c_adapter = PIOS_I2C_ADAPTER_0;
+			break;
+#endif
+#if defined(PIOS_I2C_ADAPTER_1)
+		case 1:
+			i2c_adapter = PIOS_I2C_ADAPTER_1;
+			break;
+#endif
+#if defined(PIOS_I2C_ADAPTER_2)
+		case 2:
+			i2c_adapter = PIOS_I2C_ADAPTER_2;
+			break;
+#endif
+		default:
+			i2c_adapter = 0;
+	}
+
+	if ((i2c_adapter) && (Param[2]->Val->Pointer != NULL)) {
+		ReturnValue->Val->Integer = PIOS_I2C_Transfer(i2c_adapter, txn_list, NELEMENTS(txn_list));
+	}
+	else {
+		ReturnValue->Val->Integer = -1;
+	}
+}
+
+/* void int I2CWrite(unsigned char,unsigned char, void *, unsigned int): write bytes to i2c slave */
+void SystemI2CWrite(struct ParseState *Parser, struct Value *ReturnValue, struct Value **Param, int NumArgs)
+{
+	uint32_t i2c_adapter;
+	const struct pios_i2c_txn txn_list[] = {
+		{
+			.info = __func__,
+			.addr = Param[1]->Val->UnsignedCharacter,
+			.rw   = PIOS_I2C_TXN_WRITE,
+			.len  = Param[3]->Val->UnsignedInteger,
+			.buf  = Param[2]->Val->Pointer,
+		},
+	};
+
+	switch(Param[0]->Val->Integer) {
+#if defined(PIOS_I2C_ADAPTER_0)
+		case 0:
+			i2c_adapter = PIOS_I2C_ADAPTER_0;
+			break;
+#endif
+#if defined(PIOS_I2C_ADAPTER_1)
+		case 1:
+			i2c_adapter = PIOS_I2C_ADAPTER_1;
+			break;
+#endif
+#if defined(PIOS_I2C_ADAPTER_2)
+		case 2:
+			i2c_adapter = PIOS_I2C_ADAPTER_2;
+			break;
+#endif
+		default:
+			i2c_adapter = 0;
+	}
+
+	if ((i2c_adapter) && (Param[2]->Val->Pointer != NULL)) {
+		ReturnValue->Val->Integer = PIOS_I2C_Transfer(i2c_adapter, txn_list, NELEMENTS(txn_list));
+	}
+	else {
+		ReturnValue->Val->Integer = -1;
+	}
+}
+#endif
+
+#ifdef PIOS_INCLUDE_GPIO
+/* void GPIOWrite(unsigned int, unsigned int): Writes/sets a general purpose output pin */
+/*(unsigned int pin_num, unsigned int command)*/
+/*unsigned int pin_num: Number of the defined GPIO pin from target/board-info/pios_board.h; starting from 0; user has to check if it is a input or output pin*/
+/*unsigned int command: 0=reset_pin , 1=set_pin, 2=toggle_pin*/
+void SystemGPIOWrite(struct ParseState *Parser, struct Value *ReturnValue, struct Value **Param, int NumArgs)
+{
+	if (Param[0]->Val->UnsignedInteger < PIOS_GPIO_NUM)
+	{
+		switch(Param[1]->Val->Integer) {
+			case 0:
+				PIOS_GPIO_Off(Param[0]->Val->UnsignedInteger);
+				break;
+			case 1:
+				PIOS_GPIO_On(Param[0]->Val->UnsignedInteger);
+				break;
+			case 2:
+				PIOS_GPIO_Toggle(Param[0]->Val->UnsignedInteger);
+				break;
+		}
+	}
+}
+
+
+/* void int GPIORead(unsigned int): Reads the value of a general purpose input pin */
+/*(unsigned int pin_num)*/
+/*unsigned int pin_num: Number of the defined GPIO pin from target/board-info/pios_board.h; starting from 0; user has to check if it is a input or output pin*/
+void SystemGPIORead(struct ParseState *Parser, struct Value *ReturnValue, struct Value **Param, int NumArgs)
+{
+	if (Param[0]->Val->UnsignedInteger < PIOS_GPIO_NUM)
+	{
+		ReturnValue->Val->Integer = PIOS_GPIO_Read(Param[0]->Val->UnsignedInteger);
+	}
+	else
+	{
+		ReturnValue->Val->Integer = -1;
+	}
+}
+#endif
+
+
 /* list of all library functions and their prototypes */
 struct LibraryFunction PlatformLibrary_system[] =
 {
 	{ SystemDelay,			"void delay(int);" },
 	{ SystemSync,			"void sync(int);" },
+	{ SystemTime,			"unsigned long time();" },
 	{ SystemArmed,			"int armed();" },
 	{ SystemAccessLevelSet,	"void AccessLevelSet(int);" },
 #ifdef PIOS_COM_PICOC
-	{ SystemChangeBaud,		"void ChangeBaud(long);" },
+	{ SystemChangeBaud,		"void ChangeBaud(unsigned long);" },
+	{ SystemSendBuffer,		"long SendBuffer(void *,unsigned int);" },
+	{ SystemReceiveBuffer,	"long ReceiveBuffer(void *,unsigned int,unsigned long);" },
 #endif
 	{ SystemTestValGet,		"int TestValGet();" },
 	{ SystemTestValSet,		"void TestValSet(int);" },
@@ -502,6 +686,14 @@ struct LibraryFunction PlatformLibrary_system[] =
 	{ SystemPWMInGet,		"int PWMInGet(int);" },
 #endif
 	{ SystemTxChannelValGet,"int TxChannelValGet(int);" },
+#ifdef PIOS_INCLUDE_I2C
+	{ SystemI2CRead,		"int i2c_read(unsigned char,unsigned char, void *,unsigned int);" },
+	{ SystemI2CWrite,		"int i2c_write(unsigned char,unsigned char, void *,unsigned int);" },
+#endif
+#ifdef PIOS_INCLUDE_GPIO
+	{ SystemGPIOWrite,		"void GPIOWrite(unsigned int, unsigned int);" },
+	{ SystemGPIORead,		"int GPIORead(unsigned int);" },
+#endif
 	{ NULL, NULL }
 };
 
@@ -766,7 +958,7 @@ void FlightStatus_Get(struct ParseState *Parser, struct Value *ReturnValue, stru
 /* list of all library functions and their prototypes */
 struct LibraryFunction PlatformLibrary_flightstatus[] =
 {
-	{ FlightStatus_Get,	"void FlightStatusGet(FlightBatteryStateData *);" },
+	{ FlightStatus_Get,	"void FlightStatusGet(FlightStatusData *);" },
 	{ NULL, NULL }
 };
 
@@ -867,7 +1059,7 @@ void PlatformLibrarySetup_gpsposition(Picoc *pc)
 		"long Longitude;"
 		"unsigned char Status;"
 		"char Satellites;"
-	"}GPSPositionData;";
+	"} GPSPositionData;";
 #endif
 	PicocParse(pc, "mylib", definition, strlen(definition), TRUE, TRUE, FALSE, FALSE);
 
@@ -1046,6 +1238,156 @@ struct LibraryFunction PlatformLibrary_manualcontrol[] =
 	{ Stabilization3SettingsSet,	"void Stabilized3Set(int,int,int);" },
 	{ NULL, NULL }
 };
+
+
+/**
+ * pathdesired.h
+ */
+#include "pathdesired.h"
+
+/* library functions */
+#ifndef NO_FP
+void PathDesired_Get(struct ParseState *Parser, struct Value *ReturnValue, struct Value **Param, int NumArgs)
+{
+	if (Param[0]->Val->Pointer == NULL)
+		return;
+
+	PathDesiredData data;
+	PathDesiredGet(&data);
+
+	// use the same struct like picoc. see below
+	struct mystruct {
+		double Start[3];
+		double End[3];
+		double StartingVelocity;
+		double EndingVelocity;
+		double ModeParameters;
+		unsigned char Mode;
+	} *pdata;
+	pdata = Param[0]->Val->Pointer;
+	pdata->Start[0] = data.Start[0];
+	pdata->Start[1] = data.Start[1];
+	pdata->Start[2] = data.Start[2];
+	pdata->End[0] = data.End[0];
+	pdata->End[1] = data.End[1];
+	pdata->End[2] = data.End[2];
+	pdata->StartingVelocity = data.StartingVelocity;
+	pdata->EndingVelocity = data.EndingVelocity;
+	pdata->ModeParameters = data.ModeParameters;
+	pdata->Mode = data.Mode;
+}
+
+void PathDesired_Set(struct ParseState *Parser, struct Value *ReturnValue, struct Value **Param, int NumArgs)
+{
+	if (Param[0]->Val->Pointer == NULL)
+		return;
+
+	PathDesiredData data;
+	PathDesiredGet(&data);
+
+	// use the same struct like picoc. see below
+	struct mystruct {
+		double Start[3];
+		double End[3];
+		double StartingVelocity;
+		double EndingVelocity;
+		double ModeParameters;
+		unsigned char Mode;
+	} *pdata;
+	pdata = Param[0]->Val->Pointer;
+	data.Start[0] = pdata->Start[0];
+	data.Start[1] = pdata->Start[1];
+	data.Start[2] = pdata->Start[2];
+	data.End[0] = pdata->End[0];
+	data.End[1] = pdata->End[1];
+	data.End[2] = pdata->End[2];
+	data.StartingVelocity = pdata->StartingVelocity;
+	data.EndingVelocity = pdata->EndingVelocity;
+	data.ModeParameters = pdata->ModeParameters;
+	data.Mode = pdata->Mode;
+
+	PathDesiredSet(&data);
+}
+#endif
+
+/* list of all library functions and their prototypes */
+struct LibraryFunction PlatformLibrary_pathdesired[] =
+{
+#ifndef NO_FP
+	{ PathDesired_Get,	"void PathDesiredGet(PathDesiredData *);" },
+	{ PathDesired_Set,	"void PathDesiredSet(PathDesiredData *);" },
+#endif
+	{ NULL, NULL }
+};
+
+/* this is called when the header file is included */
+void PlatformLibrarySetup_pathdesired(Picoc *pc)
+{
+	const char *definition = "typedef struct {"
+		"float Start[3];"
+		"float End[3];"
+		"float StartingVelocity;"
+		"float EndingVelocity;"
+		"float ModeParameters;"
+		"unsigned char Mode;"
+	"} PathDesiredData;";
+	PicocParse(pc, "mylib", definition, strlen(definition), TRUE, TRUE, FALSE, FALSE);
+
+	if (PathDesiredHandle() == NULL)
+		ProgramFailNoParser(pc, "no pathdesired");
+}
+
+
+/**
+ * pathstatus.h
+ */
+#include "pathstatus.h"
+
+/* library functions */
+#ifndef NO_FP
+void PathStatus_Get(struct ParseState *Parser, struct Value *ReturnValue, struct Value **Param, int NumArgs)
+{
+	if (Param[0]->Val->Pointer == NULL)
+		return;
+
+	PathStatusData data;
+	PathStatusGet(&data);
+
+	// use the same struct like picoc. see below
+	struct mystruct {
+		double fractional_progress;
+		double error;
+		unsigned char Status;
+	} *pdata;
+	pdata = Param[0]->Val->Pointer;
+	pdata->fractional_progress = data.fractional_progress;
+	pdata->error = data.error;
+	pdata->Status = data.Status;
+}
+#endif
+
+/* list of all library functions and their prototypes */
+struct LibraryFunction PlatformLibrary_pathstatus[] =
+{
+#ifndef NO_FP
+	{ PathStatus_Get,	"void PathStatusGet(PathStatusData *);" },
+#endif
+	{ NULL, NULL }
+};
+
+/* this is called when the header file is included */
+void PlatformLibrarySetup_pathstatus(Picoc *pc)
+{
+	const char *definition = "typedef struct {"
+		"float fractional_progress;"
+		"float error;"
+		"unsigned char Status;"
+	"} PathStatusData;";
+	PicocParse(pc, "mylib", definition, strlen(definition), TRUE, TRUE, FALSE, FALSE);
+
+	if (PathStatusHandle() == NULL)
+		ProgramFailNoParser(pc, "no pathstatus");
+}
 
 
 /**
@@ -1295,6 +1637,8 @@ void PlatformLibraryInit(Picoc *pc)
 	IncludeRegister(pc, "gyros.h", &PlatformLibrarySetup_gyros, &PlatformLibrary_gyros[0], NULL);
 	IncludeRegister(pc, "magnetometer.h", &PlatformLibrarySetup_magnetometer, &PlatformLibrary_magnetometer[0], NULL);
 	IncludeRegister(pc, "manualcontrol.h", NULL, &PlatformLibrary_manualcontrol[0], NULL);
+	IncludeRegister(pc, "pathdesired.h", &PlatformLibrarySetup_pathdesired, &PlatformLibrary_pathdesired[0], NULL);
+	IncludeRegister(pc, "pathstatus.h", &PlatformLibrarySetup_pathstatus, &PlatformLibrary_pathstatus[0], NULL);
 	IncludeRegister(pc, "positionactual.h", &PlatformLibrarySetup_positionactual, &PlatformLibrary_positionactual[0], NULL);
 #ifndef NO_FP
 	IncludeRegister(pc, "pid.h", &PlatformLibrarySetup_pid, &PlatformLibrary_pid[0], NULL);

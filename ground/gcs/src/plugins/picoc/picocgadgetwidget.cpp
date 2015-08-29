@@ -365,6 +365,10 @@ bool PicoCGadgetWidget::waitForExecution()
             return true;
         sleep(100);
     }
+    QMessageBox::critical(0,
+                          tr("PicoC"),
+                          tr("PicoC module doesn't respond. Command timed out."),
+                          QMessageBox::Ok);
     return false;
 }
 
@@ -379,6 +383,17 @@ void PicoCGadgetWidget::sleep(int msec)
     QTimer::singleShot(msec, &m_eventloop, SLOT(quit()));
     m_eventloop.exec();
 }
+
+/**
+* @brief PicoCGadgetWidget::on_tbTestValueSend_clicked  Send the Test Value
+ */
+void PicoCGadgetWidget::on_tbTestValueSend_clicked()
+{
+    // read TestValue from the SpinBox, send it to the UAVObject and update it
+    pcStatus->setTestValue(ui->sbTestValue->value());
+    pcStatus->updated();
+}
+
 
 /**
   * @}

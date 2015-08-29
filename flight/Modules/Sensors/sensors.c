@@ -54,6 +54,8 @@
 #define TASK_PRIORITY PIOS_THREAD_PRIO_HIGH
 #define SENSOR_PERIOD 6		// this allows sensor data to arrive as slow as 166Hz
 #define REQUIRED_GOOD_CYCLES 50
+#define MAX_TIME_BETWEEN_VALID_BARO_DATAS_MS 100*1000  // we allow a pause time of 100 ms between two valid
+                                                       // temperature/barometer dataa
 
 // Private types
 enum mag_calibration_algo {
@@ -96,6 +98,10 @@ static float z_accel_offset = 0;
 static float Rsb[3][3] = {{0}}; //! Rotation matrix that transforms from the body frame to the sensor board frame
 static int8_t rotate = 0;
 
+#if defined (AQ32)
+// indicates whether the external mag works
+extern bool external_mag_fail;
+#endif
 //! Select the algorithm to try and null out the magnetometer bias error
 static enum mag_calibration_algo mag_calibration_algo = MAG_CALIBRATION_PRELEMARI;
 
@@ -167,6 +173,7 @@ static void SensorsTask(void *parameters)
 	// Main task loop
 	lastSysTime = PIOS_Thread_Systime();
 	uint32_t good_runs = 1;
+	uint32_t last_baro_update_time = PIOS_DELAY_GetRaw();
 
 	while (1) {
 		if (good_runs == 0) {
@@ -209,14 +216,33 @@ static void SensorsTask(void *parameters)
 		}
 
 		queue = PIOS_SENSORS_GetQueue(PIOS_SENSOR_BARO);
-		if (queue != NULL && PIOS_Queue_Receive(queue, &baro, 0) != false) {
-			update_baro(&baro);
+		if (queue != NULL) {
+			if (PIOS_Queue_Receive(queue, &baro, 0) != false) {
+				// we can use the timeval because it contains the current time stamp (PIOS_DELAY_GetRaw())
+				last_baro_update_time = timeval;
+				update_baro(&baro);
+				AlarmsClear(SYSTEMALARMS_ALARM_TEMPBARO);
+
+			} else {
+				// Check that we got valid sensor datas
+				uint32_t dT_baro_datas = PIOS_DELAY_DiffuS(last_baro_update_time);
+				// if the last valid sensor datas older than 100 ms report an error
+				if (dT_baro_datas > MAX_TIME_BETWEEN_VALID_BARO_DATAS_MS) {
+					AlarmsSet(SYSTEMALARMS_ALARM_TEMPBARO, SYSTEMALARMS_ALARM_ERROR);
+				}
+			}
+
 		}
 
+		#if defined(AQ32)
+		if ((good_runs > REQUIRED_GOOD_CYCLES) && !external_mag_fail)
+		#else
 		if (good_runs > REQUIRED_GOOD_CYCLES)
+		#endif
 			AlarmsClear(SYSTEMALARMS_ALARM_SENSORS);
 		else
 			good_runs++;
+		
 		PIOS_WDG_UpdateFlag(PIOS_WDG_SENSORS);
 
 		// Check total time to get the sensors wasn't over the limit
@@ -303,6 +329,15 @@ static void update_gyros(struct pios_sensor_gyro_data *gyros)
 		gyrosData.x -= gyrosBias.x;
 		gyrosData.y -= gyrosBias.y;
 		gyrosData.z -= gyrosBias.z;
+
+		const float GYRO_BIAS_WARN = 10.0f;
+		if (fabsf(gyrosBias.x) > GYRO_BIAS_WARN ||
+			fabsf(gyrosBias.y) > GYRO_BIAS_WARN ||
+			fabsf(gyrosBias.z) > GYRO_BIAS_WARN) {
+			AlarmsSet(SYSTEMALARMS_ALARM_GYROBIAS, SYSTEMALARMS_ALARM_WARNING);
+		} else {
+			AlarmsClear(SYSTEMALARMS_ALARM_GYROBIAS);
+		}
 	}
 
 	GyrosSet(&gyrosData);
@@ -357,9 +392,12 @@ static void update_mags(struct pios_sensor_mag_data *mag)
  */
 static void update_baro(struct pios_sensor_baro_data *baro)
 {
-	if (isnan(baro->altitude) || isnan(baro->temperature) || isnan(baro->pressure))
+	if (isnan(baro->altitude) || isnan(baro->temperature) || isnan(baro->pressure)){
+		AlarmsSet(SYSTEMALARMS_ALARM_TEMPBARO, SYSTEMALARMS_ALARM_WARNING);
 		return;
-
+	}
+	
+	AlarmsSet(SYSTEMALARMS_ALARM_TEMPBARO, SYSTEMALARMS_ALARM_OK);
 	BaroAltitudeData baroAltitude;
 	baroAltitude.Temperature = baro->temperature;
 	baroAltitude.Pressure = baro->pressure;

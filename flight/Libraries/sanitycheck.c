@@ -3,7 +3,7 @@
  * @addtogroup TauLabsLibraries Tau Labs Libraries
  * @{
  * @file       sanitycheck.c
- * @author     Tau Labs, http://taulabs.org, Copyright (C) 2012-2013
+ * @author     Tau Labs, http://taulabs.org, Copyright (C) 2012-2015
  * @brief      Utilities to validate a flight configuration
  * @see        The GNU Public License (GPL) Version 3
  *
@@ -115,6 +115,9 @@ int32_t configuration_check()
 				break;
 			case MANUALCONTROLSETTINGS_FLIGHTMODEPOSITION_ACRO:
 			case MANUALCONTROLSETTINGS_FLIGHTMODEPOSITION_LEVELING:
+			case MANUALCONTROLSETTINGS_FLIGHTMODEPOSITION_MWRATE:
+			case MANUALCONTROLSETTINGS_FLIGHTMODEPOSITION_HORIZON:
+			case MANUALCONTROLSETTINGS_FLIGHTMODEPOSITION_AXISLOCK:
 			case MANUALCONTROLSETTINGS_FLIGHTMODEPOSITION_VIRTUALBAR:
 				// always ok
 				break;
@@ -137,18 +140,6 @@ int32_t configuration_check()
 				else {
 					if ( !TaskMonitorQueryRunning(TASKINFO_RUNNING_ALTITUDEHOLD) )
 						error_code = SYSTEMALARMS_CONFIGERROR_ALTITUDEHOLD;
-				}
-				break;
-			case MANUALCONTROLSETTINGS_FLIGHTMODEPOSITION_VELOCITYCONTROL:
-				if (coptercontrol) {
-					error_code = SYSTEMALARMS_CONFIGERROR_VELOCITYCONTROL;
-				}
-				else {
-					if (!TaskMonitorQueryRunning(TASKINFO_RUNNING_PATHFOLLOWER)) {
-						error_code = SYSTEMALARMS_CONFIGERROR_VELOCITYCONTROL;
-					} else {
-						error_code = check_safe_autonomous();
-					}
 				}
 				break;
 			case MANUALCONTROLSETTINGS_FLIGHTMODEPOSITION_POSITIONHOLD:
@@ -276,10 +267,14 @@ static int32_t check_safe_to_arm()
 			case FLIGHTSTATUS_FLIGHTMODE_MANUAL:
 			case FLIGHTSTATUS_FLIGHTMODE_ACRO:
 			case FLIGHTSTATUS_FLIGHTMODE_LEVELING:
+			case FLIGHTSTATUS_FLIGHTMODE_MWRATE:
+			case FLIGHTSTATUS_FLIGHTMODE_HORIZON:
+			case FLIGHTSTATUS_FLIGHTMODE_AXISLOCK:
 			case FLIGHTSTATUS_FLIGHTMODE_VIRTUALBAR:
 			case FLIGHTSTATUS_FLIGHTMODE_STABILIZED1:
 			case FLIGHTSTATUS_FLIGHTMODE_STABILIZED2:
 			case FLIGHTSTATUS_FLIGHTMODE_STABILIZED3:
+			case FLIGHTSTATUS_FLIGHTMODE_ALTITUDEHOLD:
 				break;
 			default:
 				// Any mode not specifically allowed prevents arming
@@ -305,7 +300,7 @@ static int32_t check_safe_autonomous()
 	//   INSIndoor  |     INS          (unsafe)
 
 
-#if !defined(COPTERCONTROL)
+#if !defined(SMALLF1)
 	StateEstimationData stateEstimation;
 	StateEstimationGet(&stateEstimation);
 
@@ -359,7 +354,6 @@ static void set_config_error(SystemAlarmsConfigErrorOptions error_code)
 	case SYSTEMALARMS_CONFIGERROR_MULTIROTOR:
 	case SYSTEMALARMS_CONFIGERROR_AUTOTUNE:
 	case SYSTEMALARMS_CONFIGERROR_ALTITUDEHOLD:
-	case SYSTEMALARMS_CONFIGERROR_VELOCITYCONTROL:
 	case SYSTEMALARMS_CONFIGERROR_POSITIONHOLD:
 	case SYSTEMALARMS_CONFIGERROR_PATHPLANNER:
 	case SYSTEMALARMS_CONFIGERROR_NAVFILTER:

@@ -36,7 +36,9 @@
 			<elementname>UAVOHoTTBridge</elementname>
 			<elementname>UAVOFrSKYSensorHubBridge</elementname>
 			<elementname>PicoC</elementname>
+			<elementname>Logging</elementname>
 			<elementname>UAVOFrSkySPortBridge</elementname>
+			<elementname>FlightStats</elementname>
 		</elementnames>
 	</field> 
 	<field name="Running" units="bool" type="enum">
@@ -74,7 +76,9 @@
 			<elementname>UAVOHoTTBridge</elementname>
 			<elementname>UAVOFrSKYSBridge</elementname>
 			<elementname>PicoC</elementname>
+			<elementname>Logging</elementname>
 			<elementname>UAVOFrSkySPortBridge</elementname>
+			<elementname>FlightStats</elementname>
 		</elementnames>
 		<options>
 			<option>False</option>
@@ -116,7 +120,9 @@
 			<elementname>UAVOHoTTBridge</elementname>
 			<elementname>UAVOFrSKYSensorHubBridge</elementname>
 			<elementname>PicoC</elementname>
+			<elementname>Logging</elementname>
 			<elementname>UAVOFrSkySPortBridge</elementname>
+			<elementname>FlightStats</elementname>
 		</elementnames>
 	</field> 
 	<access gcs="readwrite" flight="readwrite"/>
